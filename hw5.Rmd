@@ -1,0 +1,234 @@
+---
+title: "Homework 5"
+author: "Paloma Cartwright"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(here)
+library(pdftools)
+library(quanteda)
+library(tm)
+library(topicmodels)
+library(ldatuning)
+library(tidyverse)
+library(tidytext)
+library(reshape2)
+```
+
+## Read in the Data 
+
+```{r}
+
+comments_df <- read_csv("https://raw.githubusercontent.com/MaRo406/EDS_231-text-sentiment/main/dat/comments_df.csv")
+
+```
+
+## Build the Corpus 
+
+```{r}
+
+epa_corp <- corpus(x = comments_df, text_field = "text")
+epa_corp_stats <- summary(epa_corp)
+
+toks <- tokens(epa_corp, remove_punct = TRUE, remove_numbers = TRUE)
+#I added some project-specific stop words here
+add_stops <- c(stopwords("en"),"environmental", "justice", "ej", "epa", "public", "comment")
+toks1 <- tokens_select(toks, pattern = add_stops, selection = "remove")
+
+dfm_comm<- dfm(toks1, tolower = TRUE)
+dfm <- dfm_wordstem(dfm_comm)
+dfm <- dfm_trim(dfm, min_docfreq = 2) 
+
+sel_idx <- slam::row_sums(dfm) > 0 #remove rows (docs) with all zeros
+dfm <- dfm[sel_idx, ]
+```
+
+### Find number of topics (Class Example)
+
+```{r, message=FALSE}
+
+result <- FindTopicsNumber(
+  dfm,
+  topics = seq(from = 2, to = 20, by = 1),
+  metrics = c("CaoJuan2009",  "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result)
+```
+
+#### Try with k = 7 (Class Example)
+
+```{r}
+k <- 7
+
+topicModel_k7 <- LDA(dfm, k, method="Gibbs", control=list(iter = 500, verbose = 25))
+tmResult <- posterior(topicModel_k7)
+terms(topicModel_k7, 10)
+
+theta <- tmResult$topics
+beta <- tmResult$terms
+vocab <- (colnames(beta))
+
+comment_topics <- tidy(topicModel_k7, matrix = "beta")
+
+top_terms <- comment_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+```
+
+```{r}
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+#### Class Example 
+
+```{r}
+top5termsPerTopic <- terms(topicModel_k7, 5)
+topicNames <- apply(top5termsPerTopic, 2, paste, collapse=" ")
+
+exampleIds <- c(1, 2, 3)
+N <- length(exampleIds)
+
+#lapply(epa_corp[exampleIds], as.character) #uncomment to view example text
+# get topic proportions form example documents
+topicProportionExamples <- theta[exampleIds,]
+colnames(topicProportionExamples) <- topicNames
+vizDataFrame <- melt(cbind(data.frame(topicProportionExamples), document=factor(1:N)), variable.name = "topic", id.vars = "document")  
+ggplot(data = vizDataFrame, aes(topic, value, fill = document), ylab = "proportion") +
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+  coord_flip() +
+  facet_wrap(~ document, ncol = N)
+```
+
+
+## **Assignment:**
+
+Run three more models and select the overall best value for k (the number of topics) - include some justification for your selection: theory, FindTopicsNumber() optimization metrics, interpretability, LDAvis
+
+### First find the topics number using `FindTopicsNumber()`
+
+```{r}
+hw_result <- FindTopicsNumber(
+  dfm,
+  topics = seq(from = 2, to = 20, by = 1),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(hw_result)
+
+```
+
+Based on the minimization of "CaoJuan2009" and "Arun2010", the ideal number of topics is likely 20 and then based on "Griffiths2004" and "Deveaud2014" the ideal number of topics is as little as 7. So I will try 10, 14, and 20 for my k value in the models. I chose 10 instead of 7 because we already did this earlier in the analysis and 14 is the value of a large peak. 
+
+#### Try for k = 10 
+
+```{r}
+k <- 10
+topicModel_k10 <- LDA(dfm, k, method="Gibbs", control=list(iter = 500, verbose = 25))
+tmResult <- posterior(topicModel_k10)
+terms(topicModel_k10, 10)
+
+theta <- tmResult$topics
+beta <- tmResult$terms
+vocab <- (colnames(beta))
+
+comment_topics <- tidy(topicModel_k10, matrix = "beta")
+
+top_terms <- comment_topics %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+
+
+#### Try again for k = 14
+
+```{r}
+k <- 14
+topicModel_k14 <- LDA(dfm, k, method="Gibbs", control=list(iter = 500, verbose = 25))
+tmResult <- posterior(topicModel_k14)
+terms(topicModel_k14, 10)
+
+theta <- tmResult$topics
+beta <- tmResult$terms
+vocab <- (colnames(beta))
+
+comment_topics <- tidy(topicModel_k14, matrix = "beta")
+
+top_terms <- comment_topics %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+
+#### Try again for k = 20 
+
+```{r}
+k <- 20
+topicModel_k20 <- LDA(dfm, k, method="Gibbs", control=list(iter = 500, verbose = 25))
+tmResult <- posterior(topicModel_k20)
+terms(topicModel_k20, 10)
+
+theta <- tmResult$topics
+beta <- tmResult$terms
+vocab <- (colnames(beta))
+
+comment_topics <- tidy(topicModel_k20, matrix = "beta")
+
+top_terms <- comment_topics %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+
+
+
